@@ -1,0 +1,230 @@
+diff --git a/assets/src/api.ts b/assets/src/api.ts
+index c6f11d8..951205c 100644
+--- a/assets/src/api.ts
++++ b/assets/src/api.ts
+@@ -1,7 +1,7 @@
+ import request from 'superagent';
+ import qs from 'query-string';
+ import {getAuthTokens} from './storage';
+-import {Conversation, CustomerNote, User} from './types';
++import {Conversation, User} from './types';
+ 
+ // TODO: handle this on the server instead
+ function now() {
+@@ -908,41 +908,3 @@ export const fetchReportingData = async (
+     .set('Authorization', token)
+     .then((res) => res.body.data);
+ };
+-
+-/*
+- *  Customer Notes
+- */
+-export const fetchCustomerNotes = async (
+-  customerId: string,
+-  token = getAccessToken()
+-): Promise<Array<CustomerNote>> => {
+-  if (!token) {
+-    throw new Error('Invalid token!');
+-  }
+-
+-  return request
+-    .get(`/api/customers/${customerId}/notes`)
+-    .set('Authorization', token)
+-    .then((res) => res.body.data);
+-};
+-
+-export const createCustomerNote = async (
+-  customerId: string,
+-  body: string,
+-  token = getAccessToken()
+-) => {
+-  if (!token) {
+-    throw new Error('Invalid token!');
+-  }
+-
+-  return request
+-    .post(`/api/customers/${customerId}/notes`)
+-    .set('Authorization', token)
+-    .send({
+-      note: {
+-        body: body,
+-        customer_id: customerId,
+-      },
+-    })
+-    .then((res) => res.body.data);
+-};
+diff --git a/assets/src/components/conversations/ConversationDetailsSidebar.tsx b/assets/src/components/conversations/ConversationDetailsSidebar.tsx
+index bb2b016..81a9c0b 100644
+--- a/assets/src/components/conversations/ConversationDetailsSidebar.tsx
++++ b/assets/src/components/conversations/ConversationDetailsSidebar.tsx
+@@ -1,5 +1,7 @@
+ import React from 'react';
+ import {Link} from 'react-router-dom';
++import dayjs from 'dayjs';
++import utc from 'dayjs/plugin/utc';
+ import {Box, Flex} from 'theme-ui';
+ import {FRONTEND_BASE_URL} from '../../config';
+ import {
+@@ -25,11 +27,13 @@ import {
+   SidebarConversationTags,
+ } from './SidebarTagSection';
+ import * as API from '../../api';
+-import {Conversation, Customer, CustomerNote, User} from '../../types';
+-import {dayjs} from '../../utils';
++import {Conversation, Customer} from '../../types';
+ import logger from '../../logger';
+ import Paragraph from 'antd/lib/typography/Paragraph';
+ 
++// TODO: create date utility methods so we don't have to do this everywhere
++dayjs.extend(utc);
++
+ const DetailsSectionCard = ({children}: {children: any}) => {
+   return (
+     <Box
+@@ -76,70 +80,6 @@ const CustomerActiveSessions = ({customerId}: {customerId: string}) => {
+   );
+ };
+ 
+-const CustomerNotes = ({customerId}: {customerId: string}) => {
+-  const [loading, setLoading] = React.useState(false);
+-  const [currentNote, setCurrentNote] = React.useState<string>('');
+-  const [noteError, setNoteError] = React.useState<boolean>(false);
+-  const [notes, setNotes] = React.useState<Array<CustomerNote>>([]);
+-
+-  React.useEffect(() => {
+-    setLoading(true);
+-
+-    API.fetchCustomerNotes(customerId)
+-      .then((notes: Array<CustomerNote>) => setNotes(notes))
+-      .catch((err) => logger.error('Error retrieving customer notes:', err))
+-      .finally(() => setLoading(false));
+-  }, [customerId]);
+-
+-  const createCustomerNote = () => {
+-    if (currentNote.length < 1 || loading) {
+-      // TODO: decide error handling state - suggest border highlight
+-      setNoteError(true);
+-      return Promise.resolve();
+-    }
+-
+-    setLoading(true);
+-    return API.createCustomerNote(customerId, currentNote)
+-      .catch((err) => logger.error('Error creating customer note:', err))
+-      .then((newNote: CustomerNote) => {
+-        if (newNote && newNote.id) {
+-          setNotes([...notes, newNote]);
+-          setCurrentNote('');
+-        }
+-      })
+-      .finally(() => setLoading(false));
+-  };
+-
+-  const setNote = (e: React.ChangeEvent<HTMLInputElement>) => {
+-    setCurrentNote(e.target.value);
+-  };
+-
+-  return (
+-    <div>
+-      <Input
+-        type="text"
+-        placeholder="Add a note"
+-        onChange={setNote}
+-        value={currentNote}
+-      />
+-      <Button
+-        type="primary"
+-        block
+-        ghost
+-        loading={loading}
+-        onClick={createCustomerNote}
+-      >
+-        Add
+-      </Button>
+-      <div>
+-        {notes.map((n) => (
+-          <div>{n.body}</div>
+-        ))}
+-      </div>
+-    </div>
+-  );
+-};
+-
+ const CustomerDetails = ({
+   customer,
+   isOnline,
+@@ -267,16 +207,6 @@ const CustomerDetails = ({
+         </DetailsSectionCard>
+       )}
+ 
+-      {hasMetadata && (
+-        <DetailsSectionCard>
+-          <Box mb={2}>
+-            <Text strong>Customer notes</Text>
+-          </Box>
+-
+-          {<CustomerNotes customerId={customerId} />}
+-        </DetailsSectionCard>
+-      )}
+-
+       <DetailsSectionCard>
+         <Box mb={2}>
+           <Text strong>Device</Text>
+diff --git a/assets/src/components/conversations/ConversationHeader.tsx b/assets/src/components/conversations/ConversationHeader.tsx
+index 6561c20..5385bf2 100644
+--- a/assets/src/components/conversations/ConversationHeader.tsx
++++ b/assets/src/components/conversations/ConversationHeader.tsx
+@@ -1,5 +1,7 @@
+ import React, {Fragment} from 'react';
+ import {Box, Flex} from 'theme-ui';
++import dayjs from 'dayjs';
++import utc from 'dayjs/plugin/utc';
+ import {
+   colors,
+   Button,
+@@ -18,10 +20,12 @@ import {
+   UserOutlined,
+ } from '../icons';
+ import {Customer, Conversation, User} from '../../types';
+-import {dayjs} from '../../utils';
+ import ConversationDetailsSidebar from './ConversationDetailsSidebar';
+ import DeleteOutlined from '@ant-design/icons/DeleteOutlined';
+ 
++// TODO: create date utility methods so we don't have to do this everywhere
++dayjs.extend(utc);
++
+ const hasCustomerMetadata = (customer: Customer) => {
+   const {current_url, browser, os} = customer;
+ 
+diff --git a/assets/src/types.ts b/assets/src/types.ts
+index 827560f..e8954bf 100644
+--- a/assets/src/types.ts
++++ b/assets/src/types.ts
+@@ -66,11 +66,6 @@ export type Tag = {
+   description?: string;
+ };
+ 
+-export type CustomerNote = {
+-  id: string;
+-  body: string;
+-};
+-
+ export type BrowserSession = {
+   id: string;
+   started_at: string;
+diff --git a/assets/src/utils.ts b/assets/src/utils.ts
+index a436f5d..2999e55 100644
+--- a/assets/src/utils.ts
++++ b/assets/src/utils.ts
+@@ -1,5 +1,4 @@
+ import dayjs from 'dayjs';
+-import utc from 'dayjs/plugin/utc';
+ import qs from 'query-string';
+ 
+ const {REACT_APP_STRIPE_PUBLIC_KEY} = process.env;
+@@ -113,6 +112,3 @@ export const addVisibilityEventListener = (
+ 
+   return () => document.removeEventListener(event, handler);
+ };
+-
+-// re-export extended dayjs
+-export {dayjs};
